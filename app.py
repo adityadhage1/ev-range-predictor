@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -9,522 +10,151 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
-#  PAGE CONFIG  (must be first Streamlit call)
+#  PAGE CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="EV Range Predictor",
-    page_icon="⚡",
+    page_title="Eco-Pulse EV Predictor",
+    page_icon="🍃",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─────────────────────────────────────────────
-#  GLOBAL DARK-MODE CSS  (Tesla-inspired)
+#  GLOBAL ECO-GREEN CSS (Custom Injection)
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600;700&family=Orbitron:wght@400;700;900&display=swap');
+@import url('https://fonts.googleapis.com');
 
-/* Root variables */
 :root {
     --bg-primary:   #0a0a0f;
     --bg-card:      #111118;
-    --bg-card2:     #16161f;
-    --accent:       #e31937;
-    --accent-glow:  rgba(227,25,55,0.35);
-    --cyan:         #00d4ff;
-    --cyan-glow:    rgba(0,212,255,0.25);
-    --green:        #00e676;
-    --green-glow:   rgba(0,230,118,0.3);
+    --accent:       #00FF41; /* ELECTRIC GREEN */
+    --accent-glow:  rgba(0, 255, 65, 0.4);
     --text-primary: #f0f0f5;
-    --text-muted:   #6b6b80;
-    --border:       rgba(255,255,255,0.06);
+    --border:       rgba(0, 255, 65, 0.2);
 }
 
-/* Full dark background */
-.stApp, .main, section[data-testid="stSidebar"] {
+.stApp {
     background-color: var(--bg-primary) !important;
     font-family: 'Rajdhani', sans-serif;
     color: var(--text-primary);
 }
 
-/* Sidebar */
+/* Sidebar Styling */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0d0d15 0%, #0a0a0f 100%) !important;
-    border-right: 1px solid var(--border);
-}
-section[data-testid="stSidebar"] .stSlider > label,
-section[data-testid="stSidebar"] .stToggle > label,
-section[data-testid="stSidebar"] label {
-    color: var(--text-primary) !important;
-    font-family: 'Rajdhani', sans-serif !important;
-    font-size: 0.95rem !important;
-    letter-spacing: 0.04em;
+    background: #0d0d15 !important;
+    border-right: 1px solid var(--accent);
 }
 
-/* Slider accent */
+/* Glowing Green Headings */
+h1, h2, h3 { 
+    font-family: 'Orbitron', sans-serif !important; 
+    color: var(--accent) !important;
+    text-shadow: 0 0 15px var(--accent-glow);
+}
+
+/* Electric Green Sliders */
 .stSlider [data-baseweb="slider"] [role="slider"] {
     background-color: var(--accent) !important;
-    border: 2px solid #fff !important;
+    box-shadow: 0 0 10px var(--accent-glow);
 }
 .stSlider [data-baseweb="slider"] [data-testid="stTickBar"] + div > div > div {
-    background: linear-gradient(90deg, var(--accent), var(--cyan)) !important;
+    background: linear-gradient(90deg, var(--accent), #00d4ff) !important;
 }
 
-/* Toggle */
-.stToggle [data-baseweb="toggle"] div {
-    background-color: var(--accent) !important;
+/* Metric Card Styling */
+[data-testid="stMetricValue"] {
+    color: var(--accent) !important;
+    font-family: 'Orbitron', sans-serif;
+    text-shadow: 0 0 10px var(--accent-glow);
 }
 
-/* Cards */
-.metric-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 24px 28px;
-    position: relative;
-    overflow: hidden;
-}
-.metric-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--accent), var(--cyan));
-}
-
-/* Headings */
-h1, h2, h3 { font-family: 'Orbitron', sans-serif !important; }
-
-/* Plotly chart backgrounds */
-.js-plotly-plot .plotly {
-    background: transparent !important;
-}
-
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
-
-/* Hide Streamlit branding */
-#MainMenu, footer, header { visibility: hidden; }
+/* Scrollbar */
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-
 # ─────────────────────────────────────────────
-#  PHYSICS ENGINE  — Energy Drain Simulation
+#  PHYSICS ENGINE (Energy Drain)
 # ─────────────────────────────────────────────
-def simulate_energy_drain(
-    speed_kmh: float,
-    temp_celsius: float,
-    ac_on: bool,
-    battery_health: float,
-    base_capacity_kwh: float = 75.0,
-) -> dict:
-    """
-    Simulate real-world energy drain using physics-based formulas.
-
-    Key physics:
-        - Aerodynamic drag ∝ speed²  (dominant at highway speeds)
-        - Rolling resistance ∝ speed
-        - Temperature degrades both battery capacity & efficiency
-        - AC load adds constant parasitic drain
-        - Battery health scales usable capacity
-
-    Returns a dict with consumption (Wh/km) and predicted range (km).
-    """
-    # --- Aerodynamic drag (Wh/km) ---
-    # P_drag = 0.5 * rho * Cd * A * v³  →  per-km = P_drag / v
-    # Simplified: drag_energy = k_drag * v²
-    k_drag = 0.0042          # empirical coefficient for a Model-3-sized EV
+def simulate_energy_drain(speed_kmh, temp_celsius, ac_on, battery_health, base_capacity_kwh=75.0):
+    k_drag = 0.0042
     drag_energy = k_drag * speed_kmh**2
-
-    # --- Rolling resistance (Wh/km) ---
-    rolling_energy = 1.5 + 0.012 * speed_kmh   # Wh/km baseline
-
-    # --- Drivetrain & electronics baseline (Wh/km) ---
+    rolling_energy = 1.5 + 0.012 * speed_kmh
     base_electronics = 20.0
-
-    # --- Temperature efficiency penalty ---
-    # Li-ion loses ~0.5 % capacity per °C below 20 °C; heat also hurts
-    if temp_celsius < 20:
-        temp_penalty = 1 + 0.008 * (20 - temp_celsius)   # cold = worse
-    else:
-        temp_penalty = 1 + 0.003 * (temp_celsius - 20)   # hot = slightly worse
-
-    # --- AC load (constant parasitic drain) ---
-    ac_penalty_wh_per_km = (1500 / max(speed_kmh, 10)) if ac_on else 0.0  # 1.5 kW AC
-
-    # --- Total consumption ---
-    consumption_wh_per_km = (
-        (drag_energy + rolling_energy + base_electronics) * temp_penalty
-        + ac_penalty_wh_per_km
-    )
-
-    # --- Usable battery capacity factoring in health & temperature ---
-    usable_kwh = base_capacity_kwh * (battery_health / 100.0) * (1 / temp_penalty) * 0.95  # 5% reserve
-
-    # --- Predicted range ---
-    predicted_range_km = (usable_kwh * 1000) / consumption_wh_per_km
+    
+    temp_penalty = 1 + 0.008 * (20 - temp_celsius) if temp_celsius < 20 else 1 + 0.003 * (temp_celsius - 20)
+    ac_penalty = (1500 / max(speed_kmh, 10)) if ac_on else 0.0
+    
+    consumption = ((drag_energy + rolling_energy + base_electronics) * temp_penalty) + ac_penalty
+    usable_kwh = base_capacity_kwh * (battery_health / 100.0) * (1 / temp_penalty) * 0.95
+    predicted_range = (usable_kwh * 1000) / consumption
 
     return {
-        "consumption_wh_per_km": round(consumption_wh_per_km, 1),
+        "consumption": round(consumption, 1),
         "usable_kwh": round(usable_kwh, 2),
-        "drag_energy": round(drag_energy, 1),
-        "rolling_energy": round(rolling_energy, 1),
-        "temp_penalty": round(temp_penalty, 3),
-        "ac_drain_wh_km": round(ac_penalty_wh_per_km, 1),
-        "predicted_range_km": round(predicted_range_km, 1),
+        "range": round(predicted_range, 1),
+        "penalty": round((temp_penalty - 1) * 100, 1)
     }
 
-
 # ─────────────────────────────────────────────
-#  XGBOOST MODEL  — Train once & cache
+#  XGBOOST MODEL
 # ─────────────────────────────────────────────
-@st.cache_resource(show_spinner=False)
-def build_and_train_model():
-    """
-    Generate synthetic training data using the physics engine,
-    then train an XGBoost regressor on top of it.
-    This gives XGBoost realistic, physics-grounded patterns to learn.
-    """
+@st.cache_resource
+def get_model():
     np.random.seed(42)
-    N = 15_000
+    N = 15000
+    speeds = np.random.uniform(20, 160, N)
+    temps = np.random.uniform(-20, 45, N)
+    acs = np.random.randint(0, 2, N)
+    health = np.random.uniform(60, 100, N)
+    
+    y = [simulate_energy_drain(s, t, bool(a), h)["range"] for s, t, a, h in zip(speeds, temps, acs, health)]
+    X = pd.DataFrame({"speed": speeds, "temp": temps, "ac": acs, "health": health})
+    
+    model = xgb.XGBRegressor(n_estimators=100).fit(X, y)
+    return model
 
-    speeds       = np.random.uniform(20, 160, N)
-    temps        = np.random.uniform(-20, 45, N)
-    acs          = np.random.randint(0, 2, N).astype(float)
-    bat_healths  = np.random.uniform(60, 100, N)
-
-    ranges = []
-    for s, t, a, b in zip(speeds, temps, acs, bat_healths):
-        sim = simulate_energy_drain(s, t, bool(a), b)
-        # Add realistic noise (±3 %)
-        noise = np.random.normal(1.0, 0.03)
-        ranges.append(sim["predicted_range_km"] * noise)
-
-    X = pd.DataFrame({
-        "speed_kmh":      speeds,
-        "temp_celsius":   temps,
-        "ac_on":          acs,
-        "battery_health": bat_healths,
-    })
-    y = np.array(ranges)
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.15, random_state=42)
-
-    model = xgb.XGBRegressor(
-        n_estimators=350,
-        max_depth=6,
-        learning_rate=0.08,
-        subsample=0.85,
-        colsample_bytree=0.85,
-        reg_alpha=0.1,
-        reg_lambda=1.0,
-        random_state=42,
-        tree_method="hist",
-        verbosity=0,
-    )
-    model.fit(X_train, y_train)
-
-    test_score = model.score(X_test, y_test)
-    return model, test_score
-
+model = get_model()
 
 # ─────────────────────────────────────────────
-#  GAUGES & CHARTS
+#  SIDEBAR CONTROLS
 # ─────────────────────────────────────────────
-def range_gauge(range_km: float, max_range: float = 600):
-    pct = range_km / max_range
-
-    if pct > 0.6:
-        bar_color   = "#00e676"
-        title_color = "#00e676"
-    elif pct > 0.3:
-        bar_color   = "#ffb300"
-        title_color = "#ffb300"
-    else:
-        bar_color   = "#e31937"
-        title_color = "#e31937"
-
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=range_km,
-        number={"suffix": " km", "font": {"size": 52, "color": title_color, "family": "Orbitron"}},
-        delta={"reference": max_range * 0.6, "increasing": {"color": "#00e676"}, "decreasing": {"color": "#e31937"}},
-        gauge={
-            "axis": {
-                "range": [0, max_range],
-                "tickwidth": 1,
-                "tickcolor": "#333",
-                "tickfont": {"color": "#666", "size": 11},
-            },
-            "bar": {"color": bar_color, "thickness": 0.28},
-            "bgcolor": "#111118",
-            "borderwidth": 0,
-            "steps": [
-                {"range": [0, max_range * 0.33],   "color": "rgba(227,25,55,0.08)"},
-                {"range": [max_range * 0.33, max_range * 0.66], "color": "rgba(255,179,0,0.05)"},
-                {"range": [max_range * 0.66, max_range], "color": "rgba(0,230,118,0.05)"},
-            ],
-            "threshold": {
-                "line": {"color": "#fff", "width": 3},
-                "thickness": 0.82,
-                "value": range_km,
-            },
-        },
-        title={"text": "REAL-WORLD RANGE", "font": {"size": 14, "color": "#888", "family": "Orbitron"}},
-    ))
-
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(t=30, b=10, l=30, r=30),
-        height=320,
-        font={"color": "#f0f0f5"},
-    )
-    return fig
-
-
-def energy_breakdown_bar(drain_data: dict):
-    labels = ["⚡ Aero Drag", "🔄 Rolling", "❄️ Temp Loss", "🌬️ AC Load", "🔋 Base Electronics"]
-    values = [
-        drain_data["drag_energy"],
-        drain_data["rolling_energy"],
-        drain_data["drag_energy"] * (drain_data["temp_penalty"] - 1),  # temp overhead
-        drain_data["ac_drain_wh_km"],
-        20.0,
-    ]
-    colors = ["#e31937", "#ff6b35", "#00d4ff", "#9c27b0", "#607d8b"]
-
-    fig = go.Figure(go.Bar(
-        x=values,
-        y=labels,
-        orientation="h",
-        marker=dict(
-            color=colors,
-            line=dict(color="rgba(255,255,255,0.1)", width=1),
-        ),
-        text=[f"{v:.1f} Wh/km" for v in values],
-        textposition="outside",
-        textfont=dict(color="#aaa", size=11),
-        hovertemplate="%{y}: %{x:.1f} Wh/km<extra></extra>",
-    ))
-
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(
-            title="Energy Consumption (Wh/km)",
-            color="#555",
-            gridcolor="rgba(255,255,255,0.05)",
-            title_font=dict(color="#888"),
-        ),
-        yaxis=dict(color="#aaa", tickfont=dict(size=12)),
-        margin=dict(t=10, b=40, l=10, r=80),
-        height=260,
-        font=dict(color="#f0f0f5", family="Rajdhani"),
-        bargap=0.35,
-    )
-    return fig
-
-
-def speed_range_curve(model, temp, ac_on, bat_health):
-    speeds = np.arange(20, 165, 5)
-    ranges = []
-    for s in speeds:
-        pred = model.predict(pd.DataFrame([{
-            "speed_kmh": s,
-            "temp_celsius": temp,
-            "ac_on": float(ac_on),
-            "battery_health": bat_health,
-        }]))[0]
-        ranges.append(pred)
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=speeds,
-        y=ranges,
-        mode="lines",
-        line=dict(color="#00d4ff", width=3),
-        fill="tozeroy",
-        fillcolor="rgba(0,212,255,0.07)",
-        hovertemplate="Speed: %{x} km/h<br>Range: %{y:.0f} km<extra></extra>",
-        name="Range Curve",
-    ))
-
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(
-            title="Speed (km/h)",
-            color="#555",
-            gridcolor="rgba(255,255,255,0.05)",
-            title_font=dict(color="#888"),
-        ),
-        yaxis=dict(
-            title="Range (km)",
-            color="#555",
-            gridcolor="rgba(255,255,255,0.05)",
-            title_font=dict(color="#888"),
-        ),
-        margin=dict(t=10, b=40, l=60, r=20),
-        height=260,
-        font=dict(color="#f0f0f5", family="Rajdhani"),
-        showlegend=False,
-    )
-    return fig
-
+with st.sidebar:
+    st.header("⚙️ DRIVE PARAMETERS")
+    speed = st.slider("Speed (km/h)", 20, 160, 100)
+    temp = st.slider("Temperature (°C)", -20, 45, 25)
+    health = st.slider("Battery Health (%)", 50, 100, 95)
+    ac = st.toggle("Air Conditioning", value=True)
 
 # ─────────────────────────────────────────────
-#  MAIN APP
+#  MAIN DASHBOARD
 # ─────────────────────────────────────────────
-def main():
+st.title("🍃 ECO-PULSE AI")
+st.subheader("High-Fidelity EV Range Predictor")
 
-    # ── Header ──────────────────────────────
-    st.markdown("""
-    <div style="text-align:center; padding: 1.5rem 0 0.5rem;">
-        <span style="font-family:'Orbitron',sans-serif; font-size:2.4rem; font-weight:900;
-                     background: linear-gradient(135deg, #e31937, #ff6b35, #00d4ff);
-                     -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            ⚡ EV RANGE PREDICTOR
-        </span>
-        <p style="color:#555; font-size:0.9rem; margin-top:4px; font-family:'Rajdhani',sans-serif;
-                  letter-spacing:0.15em;">
-            PHYSICS-POWERED · XGBOOST AI · REAL-TIME
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+res = simulate_energy_drain(speed, temp, ac, health)
 
-    # ── Load Model ──────────────────────────
-    with st.spinner("⚡ Charging AI model..."):
-        model, r2 = build_and_train_model()
+# Layout
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Predicted Range", f"{res['range']} km")
+col2.metric("Consumption", f"{res['consumption']} Wh/km")
+col3.metric("Usable Battery", f"{res['usable_kwh']} kWh")
+col4.metric("Temp Penalty", f"{res['penalty']}%")
 
-    # ── Sidebar Controls ────────────────────
-    with st.sidebar:
-        st.markdown("""
-        <div style="font-family:'Orbitron',sans-serif; font-size:1rem; color:#e31937;
-                    letter-spacing:0.1em; margin-bottom:1rem; padding-bottom:0.5rem;
-                    border-bottom: 1px solid rgba(227,25,55,0.3);">
-            ⚙ DRIVE PARAMETERS
-        </div>
-        """, unsafe_allow_html=True)
+# 🟢 THE GREEN GAUGE
+fig = go.Figure(go.Indicator(
+    mode="gauge+number",
+    value=res['range'],
+    number={'suffix': " km", 'font': {'color': '#00FF41', 'family': 'Orbitron'}},
+    gauge={
+        'axis': {'range': [0, 600], 'tickcolor': "#00FF41"},
+        'bar': {'color': "#00FF41"},
+        'bgcolor': "rgba(0,0,0,0)",
+        'steps': [{'range': [0, 600], 'color': "rgba(0, 255, 65, 0.1)"}],
+    }
+))
+fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=400)
+st.plotly_chart(fig, use_container_width=True)
 
-        speed = st.slider("🚗 Speed (km/h)", 20, 160, 100, step=5)
-        temp  = st.slider("🌡️ Temperature (°C)", -20, 45, 22, step=1)
-        bat   = st.slider("🔋 Battery Health (%)", 60, 100, 95, step=1)
-        ac    = st.toggle("❄️ Air Conditioning", value=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f"""
-        <div style="background:#0d0d15; border:1px solid rgba(0,212,255,0.15);
-                    border-radius:10px; padding:12px 16px; font-size:0.82rem; color:#666;">
-            <span style="color:#00d4ff; font-family:'Orbitron',sans-serif; font-size:0.7rem;">
-                MODEL STATS
-            </span><br><br>
-            Algorithm: <span style="color:#aaa;">XGBoost Regressor</span><br>
-            Training samples: <span style="color:#aaa;">15,000</span><br>
-            R² Score: <span style="color:#00e676;">{r2:.4f}</span><br>
-            Base Capacity: <span style="color:#aaa;">75 kWh</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ── Predictions ─────────────────────────
-    features = pd.DataFrame([{
-        "speed_kmh":      speed,
-        "temp_celsius":   temp,
-        "ac_on":          float(ac),
-        "battery_health": bat,
-    }])
-    predicted_range = float(model.predict(features)[0])
-    drain_data = simulate_energy_drain(speed, temp, ac, bat)
-
-    # ── KPI Row ─────────────────────────────
-    c1, c2, c3, c4 = st.columns(4)
-
-    def kpi(col, icon, label, value, color="#00d4ff"):
-        col.markdown(f"""
-        <div class="metric-card" style="text-align:center;">
-            <div style="font-size:1.8rem;">{icon}</div>
-            <div style="font-size:1.9rem; font-weight:700; color:{color};
-                        font-family:'Orbitron',sans-serif;">{value}</div>
-            <div style="font-size:0.8rem; color:#555; letter-spacing:0.08em;">{label}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    kpi(c1, "📍", "PREDICTED RANGE",  f"{predicted_range:.0f} km", "#00e676")
-    kpi(c2, "⚡", "CONSUMPTION",      f"{drain_data['consumption_wh_per_km']:.0f} Wh/km", "#00d4ff")
-    kpi(c3, "🔋", "USABLE CAPACITY",  f"{drain_data['usable_kwh']:.1f} kWh", "#ffb300")
-    kpi(c4, "🌡️", "TEMP PENALTY",     f"{(drain_data['temp_penalty']-1)*100:.1f}%", "#e31937")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Main Charts ─────────────────────────
-    col_gauge, col_breakdown = st.columns([1, 1], gap="large")
-
-    with col_gauge:
-        st.markdown("""<div class="metric-card">""", unsafe_allow_html=True)
-        st.plotly_chart(range_gauge(predicted_range), use_container_width=True, config={"displayModeBar": False})
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col_breakdown:
-        st.markdown("""
-        <div class="metric-card">
-            <div style="font-family:'Orbitron',sans-serif; font-size:0.75rem;
-                        color:#888; letter-spacing:0.12em; margin-bottom:8px;">
-                ENERGY BREAKDOWN
-            </div>
-        """, unsafe_allow_html=True)
-        st.plotly_chart(energy_breakdown_bar(drain_data), use_container_width=True, config={"displayModeBar": False})
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── Speed-Range Curve ───────────────────
-    st.markdown("""
-    <div class="metric-card" style="margin-top:8px;">
-        <div style="font-family:'Orbitron',sans-serif; font-size:0.75rem;
-                    color:#888; letter-spacing:0.12em; margin-bottom:8px;">
-            SPEED vs RANGE CURVE  (current conditions)
-        </div>
-    """, unsafe_allow_html=True)
-    st.plotly_chart(speed_range_curve(model, temp, ac, bat), use_container_width=True, config={"displayModeBar": False})
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── Physics Explainer ───────────────────
-    with st.expander("🔬  Physics Engine — How the Energy Drain is Calculated"):
-        st.markdown(f"""
-**Aerodynamic Drag** — The dominant force at highway speeds:
-```
-drag_energy = k_drag × speed²    →  {drain_data['drag_energy']:.1f} Wh/km at {speed} km/h
-```
-Drag power scales with *velocity cubed* (P = ½ρCdAv³), so per-km energy scales with *speed squared*.
-
-**Rolling Resistance** — Proportional to speed:
-```
-rolling_energy = 1.5 + 0.012 × speed  →  {drain_data['rolling_energy']:.1f} Wh/km
-```
-
-**Temperature Penalty** — Li-ion chemistry degrades in cold & heat:
-```python
-if temp < 20°C: penalty = 1 + 0.008 × (20 − temp)   # Cold = worse chemistry
-else:           penalty = 1 + 0.003 × (temp − 20)    # Heat = minor degradation
-# Current penalty: ×{drain_data['temp_penalty']:.3f}
-```
-
-**AC Parasitic Load** — Constant ~1.5 kW converted to per-km cost:
-```
-ac_drain = 1500 W / speed  →  {drain_data['ac_drain_wh_km']:.1f} Wh/km  ({"ON" if ac else "OFF"})
-```
-
-**Final Range:**
-```
-range = (usable_capacity_kWh × 1000) / total_consumption_Wh_per_km
-      = ({drain_data['usable_kwh']} kWh × 1000) / {drain_data['consumption_wh_per_km']:.1f}
-      ≈ {drain_data['predicted_range_km']:.0f} km  (physics baseline)
-      ≈ {predicted_range:.0f} km  (XGBoost refined)
-```
-        """)
-
-
-if __name__ == "__main__":
-    main()
